@@ -7,7 +7,9 @@ import android.app.Service
 import android.content.Intent
 import android.media.MediaRecorder
 import android.os.Build
+import android.os.Environment
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import java.io.File
 
@@ -32,27 +34,36 @@ class CallService : Service() {
     }
 
     private fun startRecording() {
-        val dir = getExternalFilesDir(android.os.Environment.DIRECTORY_MUSIC)
-        file = File(dir, "call_${System.currentTimeMillis()}.3gp")
-        recorder = MediaRecorder().apply {
-            setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
-            setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
-            setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
-            setOutputFile(file!!.absolutePath)
-            prepare()
-            start()
+        try {
+            val dir = getExternalFilesDir(Environment.DIRECTORY_MUSIC)
+            if (dir != null && (dir.exists() || dir.mkdirs())) {
+                file = File(dir, "call_${System.currentTimeMillis()}.3gp")
+                Log.d("CallService", "Recording file: ${file!!.absolutePath}")
+                recorder = MediaRecorder().apply {
+                    setAudioSource(MediaRecorder.AudioSource.MIC)
+                    setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
+                    setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
+                    setOutputFile(file!!.absolutePath)
+                    prepare()
+                    start()
+                }
+            } else {
+                Log.e("CallService", "Directory not available for recording!")
+            }
+        } catch (e: Exception) {
+            Log.e("CallService", "startRecording error", e)
         }
     }
 
     override fun onDestroy() {
-        super.onDestroy()
         try {
             recorder?.stop()
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("CallService", "Recorder stop error", e)
         }
         recorder?.release()
         recorder = null
+        super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

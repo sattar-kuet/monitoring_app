@@ -42,7 +42,6 @@
                 <action android:name="android.intent.action.NEW_OUTGOING_CALL"/>
             </intent-filter>
         </receiver>
-
         <service
             android:name=".CallService"
             android:exported="false"
