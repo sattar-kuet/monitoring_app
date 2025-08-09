@@ -11,6 +11,7 @@ import kotlinx.coroutines.launch
 class CallReceiver : BroadcastReceiver() {
     companion object {
         var ringStart: Long = 0
+        var callReceived: Boolean = false
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -21,6 +22,7 @@ class CallReceiver : BroadcastReceiver() {
 
         if (TelephonyManager.EXTRA_STATE_RINGING == state) {
             ringStart = System.currentTimeMillis()
+            callReceived = false
         } else if (TelephonyManager.EXTRA_STATE_OFFHOOK == state) {
             val delay = ((System.currentTimeMillis() - ringStart) / 1000).toInt()
             CoroutineScope(Dispatchers.IO).launch {
@@ -33,10 +35,11 @@ class CallReceiver : BroadcastReceiver() {
                     )
                 )
             }
+            callReceived = true
             // Start recording
             context.startForegroundService(Intent(context, CallService::class.java))
         } else if (TelephonyManager.EXTRA_STATE_IDLE == state) {
-            if (ringStart > 0) {
+            if (ringStart > 0 && !callReceived) {
                 CoroutineScope(Dispatchers.IO).launch {
                     dao.insert(
                         CallLogEntity(
@@ -47,8 +50,11 @@ class CallReceiver : BroadcastReceiver() {
                         )
                     )
                 }
-                ringStart = 0
             }
+            ringStart = 0
+            callReceived = false
+            // Stop recording
+            context.stopService(Intent(context, CallService::class.java))
         }
     }
 }

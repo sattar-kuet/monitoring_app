@@ -13,36 +13,32 @@ import java.io.File
 
 class CallService : Service() {
     private var recorder: MediaRecorder? = null
+    private var file: File? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        createNotificationChannel()
+        val notification: Notification = NotificationCompat.Builder(this, "call_recording_channel")
+            .setContentTitle("Call Recording")
+            .setContentText("Recording call in progress")
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .build()
+        startForeground(1, notification)
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(1, createNotification())
         startRecording()
         return START_STICKY
     }
 
-    private fun createNotification(): Notification {
-        val channelId = "call_recording"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                channelId, "Call Recording", NotificationManager.IMPORTANCE_LOW
-            )
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
-        }
-        return NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Call Recording")
-            .setContentText("Recording call...")
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .build()
-    }
-
     private fun startRecording() {
-        val file = File(filesDir, "call_${System.currentTimeMillis()}.3gp")
+        val dir = getExternalFilesDir(android.os.Environment.DIRECTORY_MUSIC)
+        file = File(dir, "call_${System.currentTimeMillis()}.3gp")
         recorder = MediaRecorder().apply {
             setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
             setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
             setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
-            setOutputFile(file.absolutePath)
+            setOutputFile(file!!.absolutePath)
             prepare()
             start()
         }
@@ -50,12 +46,26 @@ class CallService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        recorder?.apply {
-            stop()
-            release()
+        try {
+            recorder?.stop()
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
+        recorder?.release()
         recorder = null
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                "call_recording_channel",
+                "Call Recording",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(channel)
+        }
+    }
 }
