@@ -7,76 +7,102 @@ import android.app.Service
 import android.content.Intent
 import android.media.MediaRecorder
 import android.os.Build
-import android.os.Environment
 import android.os.IBinder
-import android.util.Log
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class CallService : Service() {
-    private var recorder: MediaRecorder? = null
-    private var file: File? = null
 
-    override fun onCreate() {
-        super.onCreate()
-        createNotificationChannel()
-        val notification: Notification = NotificationCompat.Builder(this, "call_recording_channel")
-            .setContentTitle("Call Recording")
-            .setContentText("Recording call in progress")
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .build()
-        startForeground(1, notification)
-    }
+    private var recorder: MediaRecorder? = null
+    private lateinit var outputFile: String
+    private var number: String = ""
+    private var delay: Long = 0
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        number = intent?.getStringExtra("number") ?: ""
+        delay = intent?.getLongExtra("delay", 0) ?: 0
+
+        createNotificationChannel()
+        startForeground(1, getNotification())
+
         startRecording()
-        return START_STICKY
+
+        return START_NOT_STICKY
     }
 
     private fun startRecording() {
         try {
-            val dir = getExternalFilesDir(Environment.DIRECTORY_MUSIC)
-            if (dir != null && (dir.exists() || dir.mkdirs())) {
-                file = File(dir, "call_${System.currentTimeMillis()}.3gp")
-                Log.d("CallService", "Recording file: ${file!!.absolutePath}")
-                recorder = MediaRecorder().apply {
-                    setAudioSource(MediaRecorder.AudioSource.MIC)
-                    setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
-                    setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
-                    setOutputFile(file!!.absolutePath)
-                    prepare()
-                    start()
-                }
-            } else {
-                Log.e("CallService", "Directory not available for recording!")
+            val fileName = "call_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.mp3"
+            outputFile = File(getExternalFilesDir(null), fileName).absolutePath
+
+            recorder = MediaRecorder().apply {
+                setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setOutputFile(outputFile)
+                prepare()
+                start()
             }
         } catch (e: Exception) {
-            Log.e("CallService", "startRecording error", e)
+            e.printStackTrace()
+            stopSelf()
         }
     }
 
     override fun onDestroy() {
-        try {
-            recorder?.stop()
-        } catch (e: Exception) {
-            Log.e("CallService", "Recorder stop error", e)
-        }
-        recorder?.release()
-        recorder = null
         super.onDestroy()
+
+        try {
+            recorder?.apply {
+                stop()
+                release()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        val fileBytes = File(outputFile).readBytes()
+        val fileBase64 = android.util.Base64.encodeToString(fileBytes, android.util.Base64.NO_WRAP)
+
+        val db = AppDatabase.getInstance(this)
+        val repo = Repository(db, ApiClient.apiService, this)
+
+        // ✅ CoroutineScope দিয়ে suspend function কল
+        CoroutineScope(Dispatchers.IO).launch {
+            repo.saveReceivedCall(
+                fromNumber = number,
+                delay = delay,
+                fileBase64 = fileBase64,
+                dateTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+            )
+        }
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    private fun getNotification(): Notification {
+        return NotificationCompat.Builder(this, "call_service_channel")
+            .setContentTitle("Recording Call")
+            .setContentText("Recorder running...")
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .build()
+    }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                "call_recording_channel",
-                "Call Recording",
+                "call_service_channel",
+                "Call Service Channel",
                 NotificationManager.IMPORTANCE_LOW
             )
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
+            getSystemService(NotificationManager::class.java)
+                .createNotificationChannel(channel)
         }
     }
+
+    override fun onBind(intent: Intent?): IBinder? = null
 }

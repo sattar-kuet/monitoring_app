@@ -72,6 +72,7 @@ dependencies {
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("com.squareup.okhttp3:okhttp:4.11.0")
 
     // WorkManager (optional)
     implementation("androidx.work:work-runtime-ktx:2.9.0")
