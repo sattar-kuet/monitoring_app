@@ -8,14 +8,14 @@ import android.content.Intent
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.*
 
 class CallService : Service() {
 
@@ -59,28 +59,31 @@ class CallService : Service() {
         super.onDestroy()
 
         try {
-            recorder?.apply {
-                stop()
-                release()
-            }
+            recorder?.stop()
         } catch (e: Exception) {
             e.printStackTrace()
         }
+        recorder?.release()
+        recorder = null
 
-        val fileBytes = File(outputFile).readBytes()
-        val fileBase64 = android.util.Base64.encodeToString(fileBytes, android.util.Base64.NO_WRAP)
+        val audioFile = File(outputFile)
+        if (audioFile.exists() && audioFile.length() > 0) {
+            val fileBytes = audioFile.readBytes()
+            val fileBase64 =
+                android.util.Base64.encodeToString(fileBytes, android.util.Base64.NO_WRAP)
 
-        val db = AppDatabase.getInstance(this)
-        val repo = Repository(db, ApiClient.apiService, this)
+            val db = AppDatabase.getInstance(this)
+            val repo = Repository(db, ApiClient.apiService, this)
 
-        // ✅ CoroutineScope দিয়ে suspend function কল
-        CoroutineScope(Dispatchers.IO).launch {
-            repo.saveReceivedCall(
-                fromNumber = number,
-                delay = delay,
-                fileBase64 = fileBase64,
-                dateTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
-            )
+            val dateTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                .apply { timeZone = TimeZone.getDefault() }
+                .format(Date())
+
+            CoroutineScope(Dispatchers.IO).launch {
+                repo.saveReceivedCall(number, delay, fileBase64, dateTime)
+            }
+        } else {
+            Log.e("CALL_SERVICE", "Recorded file missing or empty!")
         }
     }
 

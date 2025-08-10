@@ -17,6 +17,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var isConnected by mutableStateOf(false)
         private set
 
+    var missedCallList by mutableStateOf<List<MissedCallEntity>>(emptyList())
+        private set
+
+    var receivedCallList by mutableStateOf<List<ReceivedCallEntity>>(emptyList())
+        private set
+
     private val db = AppDatabase.getInstance(application)
     private val repo = Repository(db, ApiClient.apiService, application)
 
@@ -24,6 +30,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             while (true) {
                 refreshStats()
+                loadCallLists()
                 delay(5000)
             }
         }
@@ -39,22 +46,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         if (online && pendingCount > 0) {
             repo.syncOfflineData()
-
-            // আবার রিফ্রেশ করো
             val missed2 = db.callDao().getUnsyncedMissed()
             val recv2 = db.callDao().getUnsyncedRecv()
             pendingCount = missed2.size + recv2.size
         }
     }
-    // ✅ TEST API for Missed Call
+
+    private suspend fun loadCallLists() {
+        missedCallList = db.callDao().getAllMissedCalls()
+        receivedCallList = db.callDao().getAllReceivedCalls()
+    }
+
     fun testMissedCall() {
         viewModelScope.launch {
             repo.saveMissedCall("01521739173", Util.currentDateTime())
             refreshStats()
+            loadCallLists()
         }
     }
 
-    // ✅ TEST API for Received Call
     fun testReceivedCall() {
         viewModelScope.launch {
             repo.saveReceivedCall(
@@ -64,6 +74,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 dateTime = Util.currentDateTime()
             )
             refreshStats()
+            loadCallLists()
         }
     }
 }

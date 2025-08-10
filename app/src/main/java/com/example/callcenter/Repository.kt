@@ -10,7 +10,6 @@ class Repository(
     private val api: ApiService,
     private val context: Context
 ) {
-
     companion object {
         private const val TAG = "SYNC_DEBUG"
     }
@@ -24,12 +23,7 @@ class Repository(
             if (net) {
                 try {
                     val resp = api.sendMissedCall(
-                        ParamsWrapper(
-                            MissedCallParams(
-                                from_number = fromNumber,
-                                date_time = dateTime
-                            )
-                        )
+                        ParamsWrapper(MissedCallParams(fromNumber, dateTime))
                     )
                     if (resp.isSuccessful) {
                         Log.d(TAG, "✅ Missed Call posted successfully.")
@@ -41,10 +35,8 @@ class Repository(
                     Log.e(TAG, "❌ Exception posting missed call: ${e.message}")
                 }
             }
-            db.callDao().insertMissedCall(
-                MissedCallEntity(fromNumber = fromNumber, dateTime = dateTime)
-            )
-            Log.d(TAG, "💾 Missed save offline.")
+            db.callDao().insertMissedCall(MissedCallEntity(fromNumber = fromNumber, dateTime = dateTime))
+            Log.d(TAG, "💾 Missed call saved offline.")
         }
     }
 
@@ -57,14 +49,7 @@ class Repository(
             if (net) {
                 try {
                     val resp = api.saveCallRecord(
-                        ParamsWrapper(
-                            ReceivedCallParams(
-                                from_number = fromNumber,
-                                delay = delay,
-                                file = fileBase64,
-                                date_time = dateTime
-                            )
-                        )
+                        ParamsWrapper(ReceivedCallParams(fromNumber, delay, fileBase64, dateTime))
                     )
                     if (resp.isSuccessful) {
                         Log.d(TAG, "✅ Received Call posted successfully.")
@@ -73,18 +58,13 @@ class Repository(
                         Log.e(TAG, "❌ Received Call API failed: ${resp.code()} ${resp.message()}")
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "❌ Exception posting received: ${e.message}")
+                    Log.e(TAG, "❌ Exception posting received call: ${e.message}")
                 }
             }
             db.callDao().insertReceivedCall(
-                ReceivedCallEntity(
-                    fromNumber = fromNumber,
-                    delayMs = delay,
-                    fileBase64 = fileBase64,
-                    dateTime = dateTime
-                )
+                ReceivedCallEntity(fromNumber = fromNumber, delayMs = delay, fileBase64 = fileBase64, dateTime = dateTime)
             )
-            Log.d(TAG, "💾 Received save offline.")
+            Log.d(TAG, "💾 Received call saved offline.")
         }
     }
 
@@ -101,12 +81,7 @@ class Repository(
             for (mc in unsyncedMissed) {
                 try {
                     val resp = api.sendMissedCall(
-                        ParamsWrapper(
-                            MissedCallParams(
-                                from_number = mc.fromNumber,
-                                date_time = mc.dateTime
-                            )
-                        )
+                        ParamsWrapper(MissedCallParams(mc.fromNumber, mc.dateTime))
                     )
                     if (resp.isSuccessful) {
                         db.callDao().markMissedSynced(mc.id)
@@ -122,14 +97,7 @@ class Repository(
             for (rc in unsyncedRecv) {
                 try {
                     val resp = api.saveCallRecord(
-                        ParamsWrapper(
-                            ReceivedCallParams(
-                                from_number = rc.fromNumber,
-                                delay = rc.delayMs,
-                                file = rc.fileBase64,
-                                date_time = rc.dateTime
-                            )
-                        )
+                        ParamsWrapper(ReceivedCallParams(rc.fromNumber, rc.delayMs, rc.fileBase64, rc.dateTime))
                     )
                     if (resp.isSuccessful) {
                         db.callDao().markRecvSynced(rc.id)

@@ -1,36 +1,41 @@
-package com.example.todoapp
+package com.example.callcenter
 
+import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Handler
+import android.os.Looper
 import android.provider.CallLog
 import android.telephony.TelephonyManager
-import com.example.callcenter.ApiClient
-import com.example.callcenter.AppDatabase
-import com.example.callcenter.CallService
-import com.example.callcenter.Repository
+import android.util.Log
+import androidx.core.app.ActivityCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.*
 
 class CallReceiver : BroadcastReceiver() {
 
-    private var lastState: String? = null
-    private var incomingNumber: String? = null
-    private var ringTime: Long = 0
+    companion object {
+        private var lastState: String? = TelephonyManager.EXTRA_STATE_IDLE
+        private var callStartTime: Long = 0
+        private var incomingNumber: String? = null
+    }
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == TelephonyManager.ACTION_PHONE_STATE_CHANGED) {
-            val stateStr = intent.getStringExtra(TelephonyManager.EXTRA_STATE)
+            val stateStr = intent.getStringExtra(TelephonyManager.EXTRA_STATE) ?: return
             val number = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
+
+            Log.d("CALL_RECEIVER", "State=$stateStr Number=$number lastState=$lastState")
 
             when (stateStr) {
                 TelephonyManager.EXTRA_STATE_RINGING -> {
                     incomingNumber = number
-                    ringTime = System.currentTimeMillis()
+                    callStartTime = System.currentTimeMillis()
                     lastState = TelephonyManager.EXTRA_STATE_RINGING
                 }
 
@@ -39,16 +44,15 @@ class CallReceiver : BroadcastReceiver() {
                 }
 
                 TelephonyManager.EXTRA_STATE_IDLE -> {
-                    when (lastState) {
-                        TelephonyManager.EXTRA_STATE_RINGING -> {
-                            // Missed call case
+                    if (lastState == TelephonyManager.EXTRA_STATE_RINGING) {
+                        // Missed Call
+                        Handler(Looper.getMainLooper()).postDelayed({
                             checkForMissedCall(context)
-                        }
-                        TelephonyManager.EXTRA_STATE_OFFHOOK -> {
-                            // Received call case
-                            val delay = System.currentTimeMillis() - ringTime
-                            postReceivedCall(context, incomingNumber ?: "Unknown", delay)
-                        }
+                        }, 1500)
+                    } else if (lastState == TelephonyManager.EXTRA_STATE_OFFHOOK) {
+                        // Received Call
+                        val delayTime = System.currentTimeMillis() - callStartTime
+                        saveReceivedCall(context, incomingNumber ?: "Unknown", delayTime)
                     }
                     lastState = TelephonyManager.EXTRA_STATE_IDLE
                 }
@@ -57,20 +61,32 @@ class CallReceiver : BroadcastReceiver() {
     }
 
     private fun checkForMissedCall(context: Context) {
+        if (ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.READ_CALL_LOG
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.e("CALL_RECEIVER", "No READ_CALL_LOG permission")
+            return
+        }
+
         val cursor = context.contentResolver.query(
             CallLog.Calls.CONTENT_URI,
             null, null, null,
             CallLog.Calls.DATE + " DESC"
         )
-
         cursor?.use {
             if (it.moveToFirst()) {
                 val type = it.getInt(it.getColumnIndexOrThrow(CallLog.Calls.TYPE))
                 val number = it.getString(it.getColumnIndexOrThrow(CallLog.Calls.NUMBER))
                 val date = it.getLong(it.getColumnIndexOrThrow(CallLog.Calls.DATE))
-                val dateTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(date))
+
+                val dateTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                    .apply { timeZone = TimeZone.getDefault() }
+                    .format(Date(date))
 
                 if (type == CallLog.Calls.MISSED_TYPE) {
+                    Log.d("CALL_RECEIVER", "Missed call: $number at $dateTime")
                     CoroutineScope(Dispatchers.IO).launch {
                         val db = AppDatabase.getInstance(context)
                         val repo = Repository(db, ApiClient.apiService, context)
@@ -81,11 +97,15 @@ class CallReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun postReceivedCall(context: Context, number: String, delay: Long) {
-        val intent = Intent(context, CallService::class.java).apply {
-            putExtra("number", number)
-            putExtra("delay", delay)
+    private fun saveReceivedCall(context: Context, number: String, delay: Long) {
+        val dateTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+            .apply { timeZone = TimeZone.getDefault() }
+            .format(Date())
+
+        CoroutineScope(Dispatchers.IO).launch {
+            val db = AppDatabase.getInstance(context)
+            val repo = Repository(db, ApiClient.apiService, context)
+            repo.saveReceivedCall(number, delay, "file_base64_data", dateTime)
         }
-        context.startForegroundService(intent)
     }
 }
